@@ -2,6 +2,7 @@
 name = "simple_function_logger"
 version = "0.1.0"
 edition = "2021"
+description = "Simple function logger"
 authors = ["Baehyunsol <baehyunsol@naver.com>"]
 license = "MIT"
 repository = "https://github.com/baehyunsol/simple_function_logger"
