@@ -2,6 +2,9 @@
 name = "simple_function_logger"
 version = "0.1.0"
 edition = "2021"
+authors = ["Baehyunsol <baehyunsol@naver.com>"]
+license = "MIT"
+repository = "https://github.com/baehyunsol/simple_function_logger"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
