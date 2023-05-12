@@ -111,8 +111,13 @@ fn read_args(stream: TokenStream) -> Vec<String> {
         match curr_state {
             ArgState::NameInit => match &token {
                 TokenTree::Ident(i) => {
-                    result.push(i.to_string());
-                    curr_state = ArgState::NameDone;
+                    let ident = i.to_string();
+
+                    if ident != "mut" {  // in order to process `&mut self`
+                        result.push(ident);
+                        curr_state = ArgState::NameDone;
+                    }
+
                 }
                 _ => {}
             }
@@ -206,6 +211,19 @@ fn profile_cfg(profile: &(bool, bool, bool)) -> String {
 }
 
 fn parse_options(attr: TokenStream) -> AttrOption {
+
+    // default option
+    if attr.is_empty() {
+        return AttrOption {
+            profile: (true, true, true),
+            all: (true, true),
+            args: vec![],
+            prefix: String::new(),
+            suffix: String::new(),
+            dump: false
+        }
+    }
+
     let mut profile = (false, false, false);  // (test, debug, release)
     let mut all = (false, false);
     let mut args = vec![];
