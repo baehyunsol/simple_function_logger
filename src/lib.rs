@@ -32,6 +32,12 @@ use std::str::FromStr;
 ///
 /// `dump` option dumps the expanded macro to stdout when compiled. It only shows the dump when compiled, not when run.
 /// It means you have to read the stdout after `cargo build`, not `cargo run`. `cargo run` works only when it's newly compiled.
+///
+/// ```rust
+/// #[printer(name = "foo")]
+/// fn bar() {}
+/// ```
+/// It uses the name `foo` instead of `bar`.
 #[proc_macro_attribute]
 pub fn printer(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut result = vec![];
@@ -152,6 +158,11 @@ fn read_args(stream: TokenStream) -> Vec<String> {
 fn print_info(func_name: &str, args: &[String], options: &AttrOption) -> String {
     let args = solve_args(args, options);
 
+    let func_name = match &options.func_name {
+        Some(f) => f.to_string(),
+        _ => func_name.to_string()
+    };
+
     format!(
         "{}{} println!(\"{}{func_name}({}){}\"{}); {}",
         profile_cfg(&options.profile),
@@ -220,6 +231,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
             args: vec![],
             prefix: String::new(),
             suffix: String::new(),
+            func_name: None,
             dump: false
         }
     }
@@ -232,6 +244,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
     let mut curr_state = OptionParseState::Init;
     let mut is_debug = false;
     let mut dump = false;
+    let mut func_name = None;
 
     for token in attr.clone().into_iter() {
 
@@ -272,6 +285,10 @@ fn parse_options(attr: TokenStream) -> AttrOption {
 
                     else if id == "suffix" {
                         curr_state = OptionParseState::ExpectChar('=', Box::new(OptionParseState::SuffixInit));
+                    }
+
+                    else if id == "name" {
+                        curr_state = OptionParseState::ExpectChar('=', Box::new(OptionParseState::NameInit));
                     }
 
                     else if id == "dump" {
@@ -325,16 +342,32 @@ fn parse_options(attr: TokenStream) -> AttrOption {
                 _ => panic!("Unexpected token in a `printer` attribute: {:?}", token.to_string())
             },
             OptionParseState::PrefixInit => match &token {
-                TokenTree::Literal(l) => {
-                    prefix = l.to_string().strip_prefix('"').unwrap().strip_suffix('"').unwrap().to_string();
-                    curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
+                TokenTree::Literal(l) => match strip_quotes(&l.to_string()) {
+                    Some(s) => {
+                        prefix = s;
+                        curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
+                    }
+                    _ => panic!("A prefix string has to be quoted!")
                 }
                 _ => panic!("A prefix string is expected, but found {:?} instead", token.to_string())
             },
             OptionParseState::SuffixInit => match &token {
-                TokenTree::Literal(l) => {
-                    suffix = l.to_string().strip_prefix('"').unwrap().strip_suffix('"').unwrap().to_string();
-                    curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
+                TokenTree::Literal(l) => match strip_quotes(&l.to_string()) {
+                    Some(s) => {
+                        suffix = s;
+                        curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
+                    }
+                    _ => panic!("A suffix string has to be quoted!")
+                }
+                _ => panic!("A suffix string is expected, but found {:?} instead", token.to_string())
+            },
+            OptionParseState::NameInit => match &token {
+                TokenTree::Literal(l) => match strip_quotes(&l.to_string()) {
+                    Some(s) => {
+                        func_name = Some(s);
+                        curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
+                    }
+                    _ => panic!("A func-name has to be quoted!")
                 }
                 _ => panic!("A suffix string is expected, but found {:?} instead", token.to_string())
             },
@@ -366,6 +399,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
         suffix,
         args,
         profile,
+        func_name,
         dump
     }
 }
@@ -388,12 +422,14 @@ enum OptionParseState {
     ArgInit,
     ExpectChar(char, Box<OptionParseState>),
     PrefixInit,
-    SuffixInit
+    SuffixInit,
+    NameInit
 }
 
 struct AttrOption {
     prefix: String,
     suffix: String,
+    func_name: Option<String>,
     profile: (bool, bool, bool),  // (test, debug, release)
     all: (bool, bool),  // (all, is_debug)
     args: Vec<(IndexOrName, bool)>,  // (arg, is_debug)
@@ -403,4 +439,17 @@ struct AttrOption {
 enum IndexOrName {
     Index(usize),
     Name(String)
+}
+
+fn strip_quotes(s: &str) -> Option<String> {
+
+    if let Some(s) = s.strip_prefix('"') {
+
+        if let Some(s) = s.strip_suffix('"') {
+            return Some(s.to_string());
+        }
+
+    }
+
+    None
 }
