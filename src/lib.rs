@@ -37,7 +37,15 @@ use std::str::FromStr;
 /// #[printer(name = "foo")]
 /// fn bar() {}
 /// ```
+///
 /// It uses the name `foo` instead of `bar`.
+///
+/// ```rust
+/// #[printer(eprintln)]
+/// fn bar() {}
+/// ```
+///
+/// It uses `eprintln` instead of `println`. There're also `print` and `eprint`.
 #[proc_macro_attribute]
 pub fn printer(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut result = vec![];
@@ -164,9 +172,10 @@ fn print_info(func_name: &str, args: &[String], options: &AttrOption) -> String 
     };
 
     format!(
-        "{}{} println!(\"{}{func_name}({}){}\"{}); {}",
+        "{}{} {}!(\"{}{func_name}({}){}\"{}); {}",
         profile_cfg(&options.profile),
         "{",
+        options.print_func.to_string(),
         options.prefix,
         args.iter().map(
             |(param, is_debug)| format!("{param}: {}{}{}", "{", if *is_debug { ":?" } else { "" }, "}")
@@ -232,6 +241,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
             prefix: String::new(),
             suffix: String::new(),
             func_name: None,
+            print_func: PrintFunc::PrintLn,
             dump: false
         }
     }
@@ -244,6 +254,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
     let mut curr_state = OptionParseState::Init;
     let mut is_debug = false;
     let mut dump = false;
+    let mut print_func = PrintFunc::PrintLn;
     let mut func_name = None;
 
     for token in attr.clone().into_iter() {
@@ -274,6 +285,19 @@ fn parse_options(attr: TokenStream) -> AttrOption {
 
                         else {
                             profile.2 = true;
+                        }
+
+                        curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
+                    }
+
+                    else if id == "println" || id == "print" || id == "eprintln" || id == "eprint" {
+
+                        if is_debug {
+                            panic!("`?` before `{id}` is invalid");
+                        }
+
+                        else {
+                            print_func = PrintFunc::from_string(&id).unwrap();
                         }
 
                         curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
@@ -400,6 +424,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
         args,
         profile,
         func_name,
+        print_func,
         dump
     }
 }
@@ -433,12 +458,43 @@ struct AttrOption {
     profile: (bool, bool, bool),  // (test, debug, release)
     all: (bool, bool),  // (all, is_debug)
     args: Vec<(IndexOrName, bool)>,  // (arg, is_debug)
+    print_func: PrintFunc,
     dump: bool
 }
 
 enum IndexOrName {
     Index(usize),
     Name(String)
+}
+
+enum PrintFunc {
+    PrintLn,
+    Print,
+    EPrintLn,
+    EPrint,
+}
+
+impl PrintFunc {
+
+    pub fn to_string(&self) -> String {
+        match self {
+            PrintFunc::PrintLn => "println",
+            PrintFunc::Print => "print",
+            PrintFunc::EPrintLn => "eprintln",
+            PrintFunc::EPrint => "eprint",
+        }.to_string()
+    }
+
+    pub fn from_string(s: &str) -> Option<Self> {
+        match s {
+            "println" => Some(PrintFunc::PrintLn),
+            "print" => Some(PrintFunc::Print),
+            "eprintln" => Some(PrintFunc::EPrintLn),
+            "eprint" => Some(PrintFunc::EPrint),
+            _ => None
+        }
+    }
+
 }
 
 fn strip_quotes(s: &str) -> Option<String> {

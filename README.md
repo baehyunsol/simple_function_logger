@@ -28,3 +28,17 @@ fn foo() {}
 
 `dump` option dumps the expanded macro to stdout when compiled. It only shows the dump when compiled, not when run.
 It means you have to read the stdout after `cargo build`, not `cargo run`. `cargo run` works only when it's newly compiled.
+
+```rust
+#[printer(name = "foo")]
+fn bar() {}
+```
+
+It uses the name `foo` instead of `bar`.
+
+```rust
+#[printer(eprintln)]
+fn bar() {}
+```
+
+It uses `eprintln` instead of `println`. There're also `print` and `eprint`.
