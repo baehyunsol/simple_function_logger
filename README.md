@@ -42,3 +42,10 @@ fn bar() {}
 ```
 
 It uses `eprintln` instead of `println`. There're also `print` and `eprint`.
+
+```rust
+#[printer(cfg = "ttt")]
+fn foo() {}
+```
+
+It works only when `#[cfg(ttt)]`. You can mix it with test, debug, and release. You can use at most one flag.

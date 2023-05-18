@@ -46,6 +46,13 @@ use std::str::FromStr;
 /// ```
 ///
 /// It uses `eprintln` instead of `println`. There're also `print` and `eprint`.
+///
+/// ```rust
+/// #[printer(cfg = "ttt")]
+/// fn foo() {}
+/// ```
+///
+/// It works only when `#[cfg(ttt)]`. You can mix it with test, debug, and release. You can use at most one flag.
 #[proc_macro_attribute]
 pub fn printer(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut result = vec![];
@@ -217,15 +224,15 @@ fn solve_args(args: &[String], options: &AttrOption) -> Vec<(String, bool)> {
     result
 }
 
-fn profile_cfg(profile: &(bool, bool, bool)) -> String {
+fn profile_cfg(profile: &(bool, bool, bool, Option<String>)) -> String {
     match profile {
-        (true, true, true) => String::new(),
-        (true, false, false) => "#[cfg(test)]".to_string(),
-        (false, true, false) => "#[cfg(all(not(test), debug_assertions))]".to_string(),
-        (false, false, true) => "#[cfg(all(not(test), not(debug_assertions)))]".to_string(),
-        (true, true, false) => "#[cfg(all(test, debug_assertions))]".to_string(),
-        (true, false, true) => "#[cfg(all(test, not(debug_assertions)))]".to_string(),
-        (false, true, true) => "#[cfg(not(test))]".to_string(),
+        (true, true, true, None) => String::new(),
+        (true, false, false, None) => "#[cfg(test)]".to_string(),
+        (false, true, false, None) => "#[cfg(all(not(test), debug_assertions))]".to_string(),
+        (false, false, true, None) => "#[cfg(all(not(test), not(debug_assertions)))]".to_string(),
+        (true, true, false, None) => "#[cfg(all(test, debug_assertions))]".to_string(),
+        (true, false, true, None) => "#[cfg(all(test, not(debug_assertions)))]".to_string(),
+        (false, true, true, None) => "#[cfg(not(test))]".to_string(),
         _ => unreachable!()
     }
 }
@@ -235,7 +242,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
     // default option
     if attr.is_empty() {
         return AttrOption {
-            profile: (true, true, true),
+            profile: (true, true, true, None),
             all: (true, true),
             args: vec![],
             prefix: String::new(),
@@ -246,7 +253,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
         }
     }
 
-    let mut profile = (false, false, false);  // (test, debug, release)
+    let mut profile = (false, false, false, None);  // (test, debug, release, cfg)
     let mut all = (false, false);
     let mut args = vec![];
     let mut prefix = String::new();
@@ -303,6 +310,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
                         curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
                     }
 
+                    // TODO: prefix, suffix, name, and cfg have repetitive code...
                     else if id == "prefix" {
                         curr_state = OptionParseState::ExpectChar('=', Box::new(OptionParseState::PrefixInit));
                     }
@@ -313,6 +321,10 @@ fn parse_options(attr: TokenStream) -> AttrOption {
 
                     else if id == "name" {
                         curr_state = OptionParseState::ExpectChar('=', Box::new(OptionParseState::NameInit));
+                    }
+
+                    else if id == "cfg" {
+                        todo!();
                     }
 
                     else if id == "dump" {
@@ -413,8 +425,10 @@ fn parse_options(attr: TokenStream) -> AttrOption {
         }
     }
 
-    if profile == (false, false, false) {
-        profile = (true, true, true);
+    if !profile.0 & !profile.1 & !profile.2 {  // profile == (false, false, false, _)
+        profile.0 = true;
+        profile.1 = true;
+        profile.2 = true;
     }
 
     AttrOption {
@@ -455,7 +469,7 @@ struct AttrOption {
     prefix: String,
     suffix: String,
     func_name: Option<String>,
-    profile: (bool, bool, bool),  // (test, debug, release)
+    profile: (bool, bool, bool, Option<String>),  // (test, debug, release, cfg)
     all: (bool, bool),  // (all, is_debug)
     args: Vec<(IndexOrName, bool)>,  // (arg, is_debug)
     print_func: PrintFunc,
