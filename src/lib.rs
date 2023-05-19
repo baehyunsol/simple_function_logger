@@ -48,11 +48,18 @@ use std::str::FromStr;
 /// It uses `eprintln` instead of `println`. There're also `print` and `eprint`.
 ///
 /// ```rust
-/// #[printer(cfg = "ttt")]
+/// #[printer(cfg = "baz")]
 /// fn foo() {}
 /// ```
 ///
-/// It works only when `#[cfg(ttt)]`. You can mix it with test, debug, and release. You can use at most one flag.
+/// It works only when `#[cfg(feature = "baz")]`. You can mix it with test, debug, and release. You can use at most one flag.
+///
+/// ```rust
+/// #[printer($a, cond(a > 3))]
+/// fn foo(a: u32) -> u32 { a + 1 }
+/// ```
+///
+/// It works only when `a > 3`. It wraps the print macro with an if statement.
 #[proc_macro_attribute]
 pub fn printer(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut result = vec![];
@@ -178,10 +185,8 @@ fn print_info(func_name: &str, args: &[String], options: &AttrOption) -> String 
         _ => func_name.to_string()
     };
 
-    format!(
-        "{}{} {}!(\"{}{func_name}({}){}\"{}); {}",
-        profile_cfg(&options.profile),
-        "{",
+    let mut printer = format!(
+        "{}!(\"{}{func_name}({}){}\"{});",
         options.print_func.to_string(),
         options.prefix,
         args.iter().map(
@@ -191,6 +196,16 @@ fn print_info(func_name: &str, args: &[String], options: &AttrOption) -> String 
         args.iter().map(
             |(param, _)| format!(", {param}")
         ).collect::<Vec<String>>().concat(),
+    );
+
+    if let Some(c) = &options.condition {
+        printer = format!("if {c} {} {printer} {}", '{', '}');
+    }
+
+    format!(
+        "{}{} {printer} {}",
+        profile_cfg(&options.profile),
+        "{",
         "}"
     )
 }
@@ -226,14 +241,33 @@ fn solve_args(args: &[String], options: &AttrOption) -> Vec<(String, bool)> {
 
 fn profile_cfg(profile: &(bool, bool, bool, Option<String>)) -> String {
     match profile {
-        (true, true, true, None) => String::new(),
+        (true, true, true, None) => "".to_string(),
+        (true, true, true, Some(s)) => format!("#[cfg({s})]"),
         (true, false, false, None) => "#[cfg(test)]".to_string(),
-        (false, true, false, None) => "#[cfg(all(not(test), debug_assertions))]".to_string(),
-        (false, false, true, None) => "#[cfg(all(not(test), not(debug_assertions)))]".to_string(),
-        (true, true, false, None) => "#[cfg(all(test, debug_assertions))]".to_string(),
-        (true, false, true, None) => "#[cfg(all(test, not(debug_assertions)))]".to_string(),
+        (true, false, false, Some(s)) => format!("#[cfg(all(test, {s}))]"),
+        (false, true, false, s) => {
+            let s = match s { Some(s) => format!(", feature = \"{s}\""), _ => String::new() };
+
+            format!("#[cfg(all(not(test), debug_assertions{s}))]")
+        },
+        (false, false, true, s) => {
+            let s = match s { Some(s) => format!(", feature = \"{s}\""), _ => String::new() };
+
+            format!("#[cfg(all(not(test), not(debug_assertions){s}))]")
+        },
+        (true, true, false, s) => {
+            let s = match s { Some(s) => format!(", feature = \"{s}\""), _ => String::new() };
+
+            format!("#[cfg(all(test, debug_assertions{s}))]")
+        },
+        (true, false, true, s) => {
+            let s = match s { Some(s) => format!(", feature = \"{s}\""), _ => String::new() };
+
+            format!("#[cfg(all(test, not(debug_assertions){s}))]")
+        },
         (false, true, true, None) => "#[cfg(not(test))]".to_string(),
-        _ => unreachable!()
+        (false, true, true, Some(s)) => format!("#[cfg(all(not(test), {s}))]"),
+        (false, false, false, _) => unreachable!()
     }
 }
 
@@ -249,6 +283,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
             suffix: String::new(),
             func_name: None,
             print_func: PrintFunc::PrintLn,
+            condition: None,
             dump: false
         }
     }
@@ -263,6 +298,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
     let mut dump = false;
     let mut print_func = PrintFunc::PrintLn;
     let mut func_name = None;
+    let mut condition = None;
 
     for token in attr.clone().into_iter() {
 
@@ -310,26 +346,27 @@ fn parse_options(attr: TokenStream) -> AttrOption {
                         curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
                     }
 
-                    // TODO: prefix, suffix, name, and cfg have repetitive code...
-                    else if id == "prefix" {
-                        curr_state = OptionParseState::ExpectChar('=', Box::new(OptionParseState::PrefixInit));
-                    }
+                    else if id == "prefix" || id == "suffix" || id == "name" || id == "cfg" {
 
-                    else if id == "suffix" {
-                        curr_state = OptionParseState::ExpectChar('=', Box::new(OptionParseState::SuffixInit));
-                    }
+                        if is_debug {
+                            panic!("`?` before `{id}` is invalid");
+                        }
 
-                    else if id == "name" {
-                        curr_state = OptionParseState::ExpectChar('=', Box::new(OptionParseState::NameInit));
-                    }
-
-                    else if id == "cfg" {
-                        todo!();
+                        curr_state = OptionParseState::ExpectChar('=', Box::new(get_next_state_from_id(&id).unwrap()));
                     }
 
                     else if id == "dump" {
                         dump = true;
                         curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
+                    }
+
+                    else if id == "cond" {
+
+                        if is_debug {
+                            panic!("`?` before `{id}` is invalid");
+                        }
+
+                        curr_state = OptionParseState::CondInit;
                     }
 
                     else {
@@ -407,6 +444,23 @@ fn parse_options(attr: TokenStream) -> AttrOption {
                 }
                 _ => panic!("A suffix string is expected, but found {:?} instead", token.to_string())
             },
+            OptionParseState::CfgInit => match &token {
+                TokenTree::Literal(l) => match strip_quotes(&l.to_string()) {
+                    Some(s) => {
+                        profile.3 = Some(s);
+                        curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
+                    }
+                    _ => panic!("A cfg name has to be quoted!")
+                }
+                _ => panic!("A cfg name is expected, but found {:?} instead", token.to_string())
+            },
+            OptionParseState::CondInit => match &token {
+                TokenTree::Group(g) => {
+                    condition = Some(g.stream().to_string());
+                    curr_state = OptionParseState::ExpectChar(',', Box::new(OptionParseState::Init));
+                }
+                _ => panic!("A condition is expected, but not found")
+            }
             OptionParseState::ExpectChar(c, next_state) => match &token {
                 TokenTree::Punct(p) if p.as_char() == c => {
                     curr_state = *next_state;
@@ -439,6 +493,7 @@ fn parse_options(attr: TokenStream) -> AttrOption {
         profile,
         func_name,
         print_func,
+        condition,
         dump
     }
 }
@@ -462,7 +517,9 @@ enum OptionParseState {
     ExpectChar(char, Box<OptionParseState>),
     PrefixInit,
     SuffixInit,
-    NameInit
+    NameInit,
+    CfgInit,
+    CondInit,
 }
 
 struct AttrOption {
@@ -473,6 +530,7 @@ struct AttrOption {
     all: (bool, bool),  // (all, is_debug)
     args: Vec<(IndexOrName, bool)>,  // (arg, is_debug)
     print_func: PrintFunc,
+    condition: Option<String>,
     dump: bool
 }
 
@@ -522,4 +580,17 @@ fn strip_quotes(s: &str) -> Option<String> {
     }
 
     None
+}
+
+fn get_next_state_from_id(id: &str) -> Option<OptionParseState> {
+
+    let result = match id {
+        "prefix" => OptionParseState::PrefixInit,
+        "suffix" => OptionParseState::SuffixInit,
+        "name" => OptionParseState::NameInit,
+        "cfg" => OptionParseState::CfgInit,
+        _ => { return None; }
+    };
+
+    Some(result)
 }

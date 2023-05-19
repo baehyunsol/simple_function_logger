@@ -44,8 +44,15 @@ fn bar() {}
 It uses `eprintln` instead of `println`. There're also `print` and `eprint`.
 
 ```rust
-#[printer(cfg = "ttt")]
+#[printer(cfg = "baz")]
 fn foo() {}
 ```
 
-It works only when `#[cfg(ttt)]`. You can mix it with test, debug, and release. You can use at most one flag.
+It works only when `#[cfg(feature = "baz")]`. You can mix it with test, debug, and release. You can use at most one flag.
+
+```rust
+#[printer($a, cond(a > 3))]
+fn foo(a: u32) -> u32 { a + 1 }
+```
+
+It works only when `a > 3`. It wraps the print macro with an if statement.

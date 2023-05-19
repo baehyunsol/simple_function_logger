@@ -1,6 +1,6 @@
 [package]
 name = "simple_function_logger"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Simple function logger"
 authors = ["Baehyunsol <baehyunsol@naver.com>"]
